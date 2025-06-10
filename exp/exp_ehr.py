@@ -9,6 +9,8 @@ import numpy as np
 import os
 from types import SimpleNamespace
 from models.PatchTST import Model as PatchTST
+from tqdm import tqdm
+import wandb
 
 
 def compute_metrics(task, trues, preds):
@@ -46,6 +48,14 @@ class Exp_EHR(Exp_Basic):
         self.text_model = AutoModel.from_pretrained(args.llm_model_path, token=args.huggingface_token).to(self.device)
         self.text_model.eval()
         self.text_proj = nn.Linear(self.text_model.config.hidden_size, self.args.num_class).to(self.device)
+        
+        # 初始化wandb
+        if hasattr(args, 'use_wandb') and args.use_wandb:
+            wandb.init(
+                project=args.wandb_project,
+                name=f"{args.ehr_task}_{args.exp_name}" if hasattr(args, 'exp_name') else f"{args.ehr_task}_exp",
+                config=vars(args)
+            )
 
     def _build_model(self):
         cfg = SimpleNamespace(
@@ -95,10 +105,16 @@ class Exp_EHR(Exp_Basic):
         test_data, test_loader = self._get_data('test')
         optimizer = self._select_optimizer()
         criterion = self._select_criterion()
-        for epoch in range(self.args.train_epochs):
+        
+        # 训练循环添加tqdm进度条
+        epoch_pbar = tqdm(range(self.args.train_epochs), desc="训练进度")
+        for epoch in epoch_pbar:
             self.model.train(); self.text_proj.train()
             losses = []
-            for ts, texts, labels in train_loader:
+            
+            # 批次循环添加tqdm进度条
+            batch_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{self.args.train_epochs}", leave=False)
+            for ts, texts, labels in batch_pbar:
                 ts = ts.to(self.device)
                 labels = labels.to(self.device)
                 with torch.no_grad():
@@ -108,18 +124,52 @@ class Exp_EHR(Exp_Basic):
                 loss = criterion(logits, labels)
                 optimizer.zero_grad(); loss.backward(); optimizer.step()
                 losses.append(loss.item())
+                
+                # 更新批次进度条
+                batch_pbar.set_postfix({'loss': f'{loss.item():.4f}'})
+            
             train_loss = np.average(losses)
             val_loss, val_metrics = self.evaluation(vali_loader, criterion)
+            
+            # 更新epoch进度条
+            epoch_pbar.set_postfix({
+                'train_loss': f'{train_loss:.3f}',
+                'val_loss': f'{val_loss:.3f}',
+                'val_AUROC': f'{val_metrics.get("macro_AUROC", 0):.3f}'
+            })
+            
             print(f"Epoch {epoch+1}: train_loss={train_loss:.3f} val_loss={val_loss:.3f} val_metrics={val_metrics}")
+            
+            # 记录到wandb
+            if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
+                wandb.log({
+                    'epoch': epoch + 1,
+                    'train_loss': train_loss,
+                    'val_loss': val_loss,
+                    **{f'val_{k}': v for k, v in val_metrics.items()}
+                })
+        
         test_loss, test_metrics = self.evaluation(test_loader, criterion)
         print('Test metrics:', test_metrics)
+        
+        # 记录最终测试结果到wandb
+        if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
+            wandb.log({
+                'test_loss': test_loss,
+                **{f'test_{k}': v for k, v in test_metrics.items()}
+            })
+            wandb.finish()
+        
         return self.model
 
     def evaluation(self, loader, criterion):
         self.model.eval(); self.text_proj.eval()
         losses = []; preds=[]; trues=[]
+        
+        # 评估循环添加tqdm进度条
+        eval_pbar = tqdm(loader, desc="评估中", leave=False)
         with torch.no_grad():
-            for ts, texts, labels in loader:
+            for ts, texts, labels in eval_pbar:
                 ts = ts.to(self.device)
                 labels = labels.to(self.device)
                 tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=self.args.max_seq_len).input_ids.to(self.device)
@@ -129,6 +179,10 @@ class Exp_EHR(Exp_Basic):
                 losses.append(loss.item())
                 preds.append(logits.cpu())
                 trues.append(labels.cpu())
+                
+                # 更新评估进度条
+                eval_pbar.set_postfix({'loss': f'{loss.item():.4f}'})
+        
         loss = np.average(losses)
         metrics = compute_metrics(self.task, trues, preds)
         self.model.train(); self.text_proj.train()
