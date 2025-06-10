@@ -11,6 +11,24 @@ from types import SimpleNamespace
 from models.PatchTST import Model as PatchTST
 from tqdm import tqdm
 import wandb
+import torch.nn.functional as F
+
+
+class MLP(nn.Module):
+    def __init__(self, layer_sizes, dropout_rate=0.5):
+        super().__init__()
+        self.layers = nn.ModuleList()
+        self.dropout = nn.Dropout(dropout_rate)
+        for i in range(len(layer_sizes) - 1):
+            self.layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = layer(x)
+            if i < len(self.layers) - 1:
+                x = F.relu(x)
+                x = self.dropout(x)
+        return x
 
 
 def compute_metrics(task, trues, preds):
@@ -42,12 +60,18 @@ class Exp_EHR(Exp_Basic):
         args.seq_len = tmp_ds.seq_len
         args.num_class = tmp_ds.num_classes
         super().__init__(args)
-        self.tokenizer = AutoTokenizer.from_pretrained(args.llm_model_path, token=args.huggingface_token)
+        token = args.huggingface_token if args.huggingface_token else None
+        self.tokenizer = AutoTokenizer.from_pretrained(args.llm_model_path, token=token)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-        self.text_model = AutoModel.from_pretrained(args.llm_model_path, token=args.huggingface_token).to(self.device)
+        self.text_model = AutoModel.from_pretrained(args.llm_model_path, token=token).to(self.device)
         self.text_model.eval()
-        self.text_proj = nn.Linear(self.text_model.config.hidden_size, self.args.num_class).to(self.device)
+        mlp_sizes = [self.text_model.config.hidden_size,
+                     self.text_model.config.hidden_size // 2,
+                     self.args.num_class]
+        self.text_proj = MLP(mlp_sizes, dropout_rate=0.3).to(self.device)
+        # learnable fusion weight
+        self.fusion_weight = nn.Parameter(torch.tensor(0.5))
         
         # 初始化wandb
         if hasattr(args, 'use_wandb') and args.use_wandb:
@@ -88,7 +112,9 @@ class Exp_EHR(Exp_Basic):
         return ds, loader
 
     def _select_optimizer(self):
-        return torch.optim.Adam(list(self.model.parameters())+list(self.text_proj.parameters()), lr=self.args.learning_rate)
+        params = list(self.model.parameters()) + \
+                 list(self.text_proj.parameters()) + [self.fusion_weight]
+        return torch.optim.Adam(params, lr=self.args.learning_rate)
 
     def _select_criterion(self):
         if self.task == 'pheno':
@@ -120,7 +146,9 @@ class Exp_EHR(Exp_Basic):
                 with torch.no_grad():
                     tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=self.args.max_seq_len).input_ids.to(self.device)
                     emb = self.text_model.get_input_embeddings()(tokens).mean(dim=1)
-                logits = self.model(ts, None, None, None) + self.text_proj(emb)
+                ts_logits = self.model(ts, None, None, None)
+                text_logits = self.text_proj(emb)
+                logits = (1 - self.fusion_weight) * ts_logits + self.fusion_weight * text_logits
                 loss = criterion(logits, labels)
                 optimizer.zero_grad(); loss.backward(); optimizer.step()
                 losses.append(loss.item())
@@ -174,7 +202,9 @@ class Exp_EHR(Exp_Basic):
                 labels = labels.to(self.device)
                 tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=self.args.max_seq_len).input_ids.to(self.device)
                 emb = self.text_model.get_input_embeddings()(tokens).mean(dim=1)
-                logits = self.model(ts, None, None, None) + self.text_proj(emb)
+                ts_logits = self.model(ts, None, None, None)
+                text_logits = self.text_proj(emb)
+                logits = (1 - self.fusion_weight) * ts_logits + self.fusion_weight * text_logits
                 loss = criterion(logits, labels)
                 losses.append(loss.item())
                 preds.append(logits.cpu())
