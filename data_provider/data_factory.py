@@ -1,5 +1,6 @@
 from data_provider.data_loader import Dataset_Custom, Dataset_M4, PSMSegLoader, \
     MSLSegLoader, SMAPSegLoader, SMDSegLoader, SWATSegLoader, UEAloader
+from data_provider.p2x_loader import P2XDataset
 from data_provider.uea import collate_fn
 from torch.utils.data import DataLoader
 
@@ -11,7 +12,8 @@ data_dict = {
     'SMAP': SMAPSegLoader,
     'SMD': SMDSegLoader,
     'SWAT': SWATSegLoader,
-    'UEA': UEAloader
+    'UEA': UEAloader,
+    'p2x': P2XDataset
 }
 
 
