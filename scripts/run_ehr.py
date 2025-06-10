@@ -11,7 +11,7 @@ def main():
     parser.add_argument('--data_root', type=str, default='/home/ubuntu/hcy50662/output_mimic3', help='dataset root folder')
     parser.add_argument('--ehr_task', type=str, default='pheno', choices=['ihm', 'pheno'])
     parser.add_argument('--llm_model_path', type=str, default='meta-llama/Meta-Llama-3-8B-Instruct')
-    parser.add_argument('--huggingface_token', type=str, default="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")
+    parser.add_argument('--huggingface_token', type=str, default="")
     parser.add_argument('--max_seq_len', type=int, default=4000,
                         help='max sequence length for tokenizer')
     parser.add_argument('--d_model', type=int, default=256)
