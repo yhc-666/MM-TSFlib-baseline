@@ -29,7 +29,7 @@ We provide preprocessed data in the ./data folder to accelerate training, partic
 bash ./scripts/week_health.sh.sh 0 1 0
 ```
 - For electronic health record tasks (48h IHM prediction and 24h phenotype classification),
-  use `scripts/run_ehr.py` with `--ehr_task ihm` or `--ehr_task pheno`. The script combines PatchTST with a Llama text encoder and reports AUROC/AUPRC/F1 metrics.
+  use `scripts/run_ehr.py` with `--ehr_task ihm` or `--ehr_task pheno`. The script combines PatchTST with a Llama text encoder and reports AUROC/AUPRC/F1 metrics. Patch sizes (`--patch_len`, `--stride`) and tokenizer max length (`--max_seq_len`) can be configured via command line.
 - You can set a list of model names, prediction lengths, and random seeds in the script for batch experiments. We recommend specifying `--save_name` to better organize and save the results.
 - `--llm_model` can set as LLAMA2, LLAMA3, GPT2, BERT, GPT2M, GPT2L, GPT2XL, Doc2Vec, ClosedLLM. When using ClosedLLM, you need to do Step 3 at first.
 - `--pool_type` can set as avg min max attention for different pooling ways of token. When `--pool_type` is set to attention, we use the output of the time series model to calculate attention scores for each token in the LLM output and perform weighted aggregation.

@@ -12,12 +12,18 @@ def main():
     parser.add_argument('--ehr_task', type=str, choices=['ihm', 'pheno'], required=True)
     parser.add_argument('--llm_model_path', type=str, default='JackFram/llama-160m')
     parser.add_argument('--huggingface_token', type=str, default=None)
+    parser.add_argument('--max_seq_len', type=int, default=256,
+                        help='max sequence length for tokenizer')
     parser.add_argument('--d_model', type=int, default=128)
     parser.add_argument('--n_heads', type=int, default=4)
     parser.add_argument('--e_layers', type=int, default=2)
     parser.add_argument('--d_ff', type=int, default=256)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--factor', type=int, default=1)
+    parser.add_argument('--patch_len', type=int, default=16,
+                        help='patch length for PatchTST')
+    parser.add_argument('--stride', type=int, default=8,
+                        help='patch stride for PatchTST')
     parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--train_epochs', type=int, default=1)
