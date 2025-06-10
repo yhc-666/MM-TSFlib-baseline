@@ -66,7 +66,7 @@ class Exp_EHR(Exp_Basic):
             output_attention=False,
             distil=True,
         )
-        model = PatchTST(cfg).float()
+        model = PatchTST(cfg, patch_len=self.args.patch_len, stride=self.args.stride).float()
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
@@ -102,7 +102,7 @@ class Exp_EHR(Exp_Basic):
                 ts = ts.to(self.device)
                 labels = labels.to(self.device)
                 with torch.no_grad():
-                    tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=256).input_ids.to(self.device)
+                    tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=self.args.max_seq_len).input_ids.to(self.device)
                     emb = self.text_model.get_input_embeddings()(tokens).mean(dim=1)
                 logits = self.model(ts, None, None, None) + self.text_proj(emb)
                 loss = criterion(logits, labels)
@@ -122,7 +122,7 @@ class Exp_EHR(Exp_Basic):
             for ts, texts, labels in loader:
                 ts = ts.to(self.device)
                 labels = labels.to(self.device)
-                tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=256).input_ids.to(self.device)
+                tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=self.args.max_seq_len).input_ids.to(self.device)
                 emb = self.text_model.get_input_embeddings()(tokens).mean(dim=1)
                 logits = self.model(ts, None, None, None) + self.text_proj(emb)
                 loss = criterion(logits, labels)
