@@ -14,7 +14,7 @@ def main():
     parser.add_argument('--huggingface_token', type=str, default="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")
     parser.add_argument('--max_seq_len', type=int, default=5000,
                         help='max sequence length for tokenizer')
-    parser.add_argument('--d_model', type=int, default=256)
+    parser.add_argument('--d_model', type=int, default=256) # hidden dim of PatchTST
     parser.add_argument('--n_heads', type=int, default=4)
     parser.add_argument('--e_layers', type=int, default=2)
     parser.add_argument('--d_ff', type=int, default=256)
@@ -24,14 +24,14 @@ def main():
                         help='patch length for PatchTST')
     parser.add_argument('--stride', type=int, default=2,
                         help='patch stride for PatchTST')
-    parser.add_argument('--learning_rate', type=float, default=1e-4)
-    parser.add_argument('--mlp_learning_rate', type=float, default=1e-4, help='learning rate for text MLP')
-    parser.add_argument('--use_full_model', action='store_true', help='use full text model instead of only embeddings')
+    parser.add_argument('--learning_rate', type=float, default=0.0001, help='learning rate for PatchTST')
+    parser.add_argument('--mlp_learning_rate', type=float, default=1e-3, help='learning rate for text MLP')
+    parser.add_argument('--use_full_model', default=True, help='use full text model instead of only embeddings')
     parser.add_argument('--pool_type', type=str, default='avg', choices=['avg', 'max', 'attention'],
                         help='pooling method for text branch')
-    parser.add_argument('--batch_size', type=int, default=8)
-    parser.add_argument('--train_epochs', type=int, default=5000)
-    parser.add_argument('--use_gpu', action='store_true')
+    parser.add_argument('--batch_size', type=int, default=4)
+    parser.add_argument('--train_epochs', type=int, default=500)
+    parser.add_argument('--use_gpu', default=True)
     parser.add_argument('--use_multi_gpu', action='store_true')
     parser.add_argument('--devices', type=str, default='0')
     
