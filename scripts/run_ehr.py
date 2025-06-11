@@ -10,9 +10,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_root', type=str, default='/home/ubuntu/hcy50662/output_mimic3', help='dataset root folder')
     parser.add_argument('--ehr_task', type=str, default='pheno', choices=['ihm', 'pheno'])
-    parser.add_argument('--llm_model_path', type=str, default='hf-internal-testing/tiny-random-gpt2')
-    parser.add_argument('--huggingface_token', type=str, default="")
-    parser.add_argument('--max_seq_len', type=int, default=4000,
+    parser.add_argument('--llm_model_path', type=str, default='meta-llama/Meta-Llama-3-8B-Instruct')
+    parser.add_argument('--huggingface_token', type=str, default="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")
+    parser.add_argument('--max_seq_len', type=int, default=5000,
                         help='max sequence length for tokenizer')
     parser.add_argument('--d_model', type=int, default=256)
     parser.add_argument('--n_heads', type=int, default=4)
@@ -24,9 +24,9 @@ def main():
                         help='patch length for PatchTST')
     parser.add_argument('--stride', type=int, default=2,
                         help='patch stride for PatchTST')
-    parser.add_argument('--learning_rate', type=float, default=5e-5)
+    parser.add_argument('--learning_rate', type=float, default=1e-4)
     parser.add_argument('--batch_size', type=int, default=8)
-    parser.add_argument('--train_epochs', type=int, default=500)
+    parser.add_argument('--train_epochs', type=int, default=5000)
     parser.add_argument('--use_gpu', action='store_true')
     parser.add_argument('--use_multi_gpu', action='store_true')
     parser.add_argument('--devices', type=str, default='0')

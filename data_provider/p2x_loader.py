@@ -20,7 +20,7 @@ class P2XDataset(Dataset):
         self.task = task
         self.seq_len = self.data[0]['reg_ts'].shape[0]
         self.num_features = 17
-        self.num_classes = 24 if task == 'pheno' else 2
+        self.num_classes = 25 if task == 'pheno' else 2
 
     def __len__(self):
         return len(self.data)
@@ -30,7 +30,7 @@ class P2XDataset(Dataset):
         ts = torch.tensor(item['reg_ts'][:, :self.num_features], dtype=torch.float32)
         text = ' '.join(item['text_data'])
         if self.task == 'pheno':
-            label = torch.tensor(item['label'][1:25], dtype=torch.float32)
+            label = torch.tensor(item['label'][1:], dtype=torch.float32)
         else:
             label = torch.tensor(item['label'], dtype=torch.long)
         return ts, text, label

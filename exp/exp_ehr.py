@@ -160,13 +160,15 @@ class Exp_EHR(Exp_Basic):
             val_loss, val_metrics = self.evaluation(vali_loader, criterion)
             
             # 更新epoch进度条
+            fusion_weight_val = self.fusion_weight.item()
             epoch_pbar.set_postfix({
                 'train_loss': f'{train_loss:.3f}',
                 'val_loss': f'{val_loss:.3f}',
-                'val_AUROC': f'{val_metrics.get("macro_AUROC", 0):.3f}'
+                'val_AUROC': f'{val_metrics.get("macro_AUROC", 0):.3f}',
+                'fusion_weight': f'{fusion_weight_val:.3f}'
             })
             
-            print(f"Epoch {epoch+1}: train_loss={train_loss:.3f} val_loss={val_loss:.3f} val_metrics={val_metrics}")
+            print(f"Epoch {epoch+1}: train_loss={train_loss:.3f} val_loss={val_loss:.3f} fusion_weight={fusion_weight_val:.4f} val_metrics={val_metrics}")
             
             # 记录到wandb
             if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
@@ -174,6 +176,7 @@ class Exp_EHR(Exp_Basic):
                     'epoch': epoch + 1,
                     'train_loss': train_loss,
                     'val_loss': val_loss,
+                    'fusion_weight': fusion_weight_val,
                     **{f'val_{k}': v for k, v in val_metrics.items()}
                 })
         
