@@ -8,7 +8,7 @@ from exp.exp_ehr import Exp_EHR
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_root', type=str, default='/home/ubuntu/hcy50662/output_mimic3', help='dataset root folder')
+    parser.add_argument('--data_root', type=str, default=os.environ.get('DATA_ROOT', '/home/ubuntu/hcy50662/output_mimic3'), help='dataset root folder')
     parser.add_argument('--ehr_task', type=str, default='pheno', choices=['ihm', 'pheno'])
     parser.add_argument('--llm_model_path', type=str, default='meta-llama/Meta-Llama-3-8B-Instruct')
     parser.add_argument('--huggingface_token', type=str, default="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")
@@ -25,6 +25,10 @@ def main():
     parser.add_argument('--stride', type=int, default=2,
                         help='patch stride for PatchTST')
     parser.add_argument('--learning_rate', type=float, default=1e-4)
+    parser.add_argument('--mlp_learning_rate', type=float, default=1e-4, help='learning rate for text MLP')
+    parser.add_argument('--use_full_model', action='store_true', help='use full text model instead of only embeddings')
+    parser.add_argument('--pool_type', type=str, default='avg', choices=['avg', 'max', 'attention'],
+                        help='pooling method for text branch')
     parser.add_argument('--batch_size', type=int, default=8)
     parser.add_argument('--train_epochs', type=int, default=5000)
     parser.add_argument('--use_gpu', action='store_true')

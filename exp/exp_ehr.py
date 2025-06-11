@@ -64,14 +64,16 @@ class Exp_EHR(Exp_Basic):
         self.tokenizer = AutoTokenizer.from_pretrained(args.llm_model_path, token=token)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.use_full_model = getattr(args, 'use_full_model', False)
+        self.pool_type = getattr(args, 'pool_type', 'avg')
         self.text_model = AutoModel.from_pretrained(args.llm_model_path, token=token).to(self.device)
         self.text_model.eval()
         mlp_sizes = [self.text_model.config.hidden_size,
-                     self.text_model.config.hidden_size // 2,
+                     self.text_model.config.hidden_size // 8,
                      self.args.num_class]
         self.text_proj = MLP(mlp_sizes, dropout_rate=0.3).to(self.device)
         # learnable fusion weight
-        self.fusion_weight = nn.Parameter(torch.tensor(0.5))
+        self.fusion_weight = nn.Parameter(torch.tensor(0.0))
         
         # 初始化wandb
         if hasattr(args, 'use_wandb') and args.use_wandb:
@@ -112,15 +114,31 @@ class Exp_EHR(Exp_Basic):
         return ds, loader
 
     def _select_optimizer(self):
-        params = list(self.model.parameters()) + \
-                 list(self.text_proj.parameters()) + [self.fusion_weight]
-        return torch.optim.Adam(params, lr=self.args.learning_rate)
+        param_groups = [
+            {'params': self.model.parameters(), 'lr': self.args.learning_rate},
+            {'params': self.text_proj.parameters(), 'lr': self.args.mlp_learning_rate},
+            {'params': [self.fusion_weight], 'lr': self.args.learning_rate},
+        ]
+        return torch.optim.Adam(param_groups)
 
     def _select_criterion(self):
         if self.task == 'pheno':
             return nn.BCEWithLogitsLoss()
         else:
             return nn.CrossEntropyLoss()
+
+    def _encode_text(self, texts):
+        with torch.no_grad():
+            toks = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True,
+                                  max_length=self.args.max_seq_len)
+            input_ids = toks.input_ids.to(self.device)
+            mask = toks.attention_mask.to(self.device).float()
+            if self.use_full_model:
+                feats = self.text_model(input_ids=input_ids, attention_mask=mask).last_hidden_state
+            else:
+                feats = self.text_model.get_input_embeddings()(input_ids)
+            feats = feats * mask.unsqueeze(-1)
+        return feats, mask
 
     def train(self, setting):
         train_data, train_loader = self._get_data('train')
@@ -144,11 +162,20 @@ class Exp_EHR(Exp_Basic):
                 ts = ts.to(self.device)
                 labels = labels.to(self.device)
                 with torch.no_grad():
-                    tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=self.args.max_seq_len).input_ids.to(self.device)
-                    emb = self.text_model.get_input_embeddings()(tokens).mean(dim=1)
+                    tok_emb, mask = self._encode_text(texts)
                 ts_logits = self.model(ts, None, None, None)
-                text_logits = self.text_proj(emb)
-                logits = (1 - self.fusion_weight) * ts_logits + self.fusion_weight * text_logits
+                tok_feat = self.text_proj(tok_emb)
+                if self.pool_type == 'avg':
+                    text_logits = (tok_feat * mask.unsqueeze(-1)).sum(dim=1) / mask.sum(dim=1, keepdim=True).clamp(min=1e-6)
+                elif self.pool_type == 'max':
+                    text_logits = tok_feat.masked_fill(mask.unsqueeze(-1) == 0, -1e9).max(dim=1).values
+                elif self.pool_type == 'attention':
+                    attn = (tok_feat @ ts_logits.unsqueeze(-1)).softmax(dim=1)
+                    text_logits = (tok_feat * attn).sum(dim=1)
+                else:
+                    raise ValueError(f'Unknown pool type {self.pool_type}')
+                weight = torch.sigmoid(self.fusion_weight)
+                logits = (1 - weight) * ts_logits + weight * text_logits
                 loss = criterion(logits, labels)
                 optimizer.zero_grad(); loss.backward(); optimizer.step()
                 losses.append(loss.item())
@@ -160,7 +187,7 @@ class Exp_EHR(Exp_Basic):
             val_loss, val_metrics = self.evaluation(vali_loader, criterion)
             
             # 更新epoch进度条
-            fusion_weight_val = self.fusion_weight.item()
+            fusion_weight_val = torch.sigmoid(self.fusion_weight).item()
             epoch_pbar.set_postfix({
                 'train_loss': f'{train_loss:.3f}',
                 'val_loss': f'{val_loss:.3f}',
@@ -203,11 +230,20 @@ class Exp_EHR(Exp_Basic):
             for ts, texts, labels in eval_pbar:
                 ts = ts.to(self.device)
                 labels = labels.to(self.device)
-                tokens = self.tokenizer(list(texts), return_tensors='pt', padding=True, truncation=True, max_length=self.args.max_seq_len).input_ids.to(self.device)
-                emb = self.text_model.get_input_embeddings()(tokens).mean(dim=1)
+                tok_emb, mask = self._encode_text(texts)
                 ts_logits = self.model(ts, None, None, None)
-                text_logits = self.text_proj(emb)
-                logits = (1 - self.fusion_weight) * ts_logits + self.fusion_weight * text_logits
+                tok_feat = self.text_proj(tok_emb)
+                if self.pool_type == 'avg':
+                    text_logits = (tok_feat * mask.unsqueeze(-1)).sum(dim=1) / mask.sum(dim=1, keepdim=True).clamp(min=1e-6)
+                elif self.pool_type == 'max':
+                    text_logits = tok_feat.masked_fill(mask.unsqueeze(-1) == 0, -1e9).max(dim=1).values
+                elif self.pool_type == 'attention':
+                    attn = (tok_feat @ ts_logits.unsqueeze(-1)).softmax(dim=1)
+                    text_logits = (tok_feat * attn).sum(dim=1)
+                else:
+                    raise ValueError(f'Unknown pool type {self.pool_type}')
+                weight = torch.sigmoid(self.fusion_weight)
+                logits = (1 - weight) * ts_logits + weight * text_logits
                 loss = criterion(logits, labels)
                 losses.append(loss.item())
                 preds.append(logits.cpu())
