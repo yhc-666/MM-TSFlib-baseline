@@ -71,9 +71,9 @@ class Exp_EHR(Exp_Basic):
         mlp_sizes = [self.text_model.config.hidden_size,
                      self.text_model.config.hidden_size // 8,
                      self.args.num_class]
-        self.text_proj = MLP(mlp_sizes, dropout_rate=0.3).to(self.device)
-        # learnable fusion weight
-        self.fusion_weight = nn.Parameter(torch.tensor(0.0))
+        self.text_proj = MLP(mlp_sizes, dropout_rate=0.1).to(self.device)
+        # fixed fusion weight
+        self.fusion_weight = 0.5
         
         # 初始化wandb
         if hasattr(args, 'use_wandb') and args.use_wandb:
@@ -117,7 +117,6 @@ class Exp_EHR(Exp_Basic):
         param_groups = [
             {'params': self.model.parameters(), 'lr': self.args.learning_rate},
             {'params': self.text_proj.parameters(), 'lr': self.args.mlp_learning_rate},
-            {'params': [self.fusion_weight], 'lr': self.args.learning_rate},
         ]
         return torch.optim.Adam(param_groups)
 
@@ -150,6 +149,10 @@ class Exp_EHR(Exp_Basic):
         optimizer = self._select_optimizer()
         criterion = self._select_criterion()
         
+        # 添加step计数器和记录频率控制
+        global_step = 0
+        log_steps = getattr(self.args, 'log_steps', 50)  # 默认每50步记录一次
+        
         # 训练循环添加tqdm进度条
         epoch_pbar = tqdm(range(self.args.train_epochs), desc="训练进度")
         for epoch in epoch_pbar:
@@ -174,20 +177,31 @@ class Exp_EHR(Exp_Basic):
                     text_logits = (tok_feat * attn).sum(dim=1)
                 else:
                     raise ValueError(f'Unknown pool type {self.pool_type}')
-                weight = torch.sigmoid(self.fusion_weight)
+                weight = self.fusion_weight
                 logits = (1 - weight) * ts_logits + weight * text_logits
                 loss = criterion(logits, labels)
                 optimizer.zero_grad(); loss.backward(); optimizer.step()
                 losses.append(loss.item())
+                global_step += 1
                 
                 # 更新批次进度条
-                batch_pbar.set_postfix({'loss': f'{loss.item():.4f}'})
+                batch_pbar.set_postfix({'loss': f'{loss.item():.4f}', 'step': global_step})
+                
+                # 每隔log_steps记录loss到wandb
+                if hasattr(self.args, 'use_wandb') and self.args.use_wandb and global_step % log_steps == 0:
+                    fusion_weight_val = self.fusion_weight
+                    wandb.log({
+                        'step': global_step,
+                        'train_loss_step': loss.item(),
+                        'fusion_weight_step': fusion_weight_val,
+                        'learning_rate': optimizer.param_groups[0]['lr']
+                    })
             
             train_loss = np.average(losses)
             val_loss, val_metrics = self.evaluation(vali_loader, criterion)
             
             # 更新epoch进度条
-            fusion_weight_val = torch.sigmoid(self.fusion_weight).item()
+            fusion_weight_val = self.fusion_weight
             epoch_pbar.set_postfix({
                 'train_loss': f'{train_loss:.3f}',
                 'val_loss': f'{val_loss:.3f}',
@@ -201,9 +215,10 @@ class Exp_EHR(Exp_Basic):
             if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
                 wandb.log({
                     'epoch': epoch + 1,
-                    'train_loss': train_loss,
-                    'val_loss': val_loss,
-                    'fusion_weight': fusion_weight_val,
+                    'step': global_step,
+                    'train_loss_epoch': train_loss,
+                    'val_loss_epoch': val_loss,
+                    'fusion_weight_epoch': fusion_weight_val,
                     **{f'val_{k}': v for k, v in val_metrics.items()}
                 })
         
@@ -213,6 +228,7 @@ class Exp_EHR(Exp_Basic):
         # 记录最终测试结果到wandb
         if hasattr(self.args, 'use_wandb') and self.args.use_wandb:
             wandb.log({
+                'final_step': global_step,
                 'test_loss': test_loss,
                 **{f'test_{k}': v for k, v in test_metrics.items()}
             })
@@ -242,7 +258,7 @@ class Exp_EHR(Exp_Basic):
                     text_logits = (tok_feat * attn).sum(dim=1)
                 else:
                     raise ValueError(f'Unknown pool type {self.pool_type}')
-                weight = torch.sigmoid(self.fusion_weight)
+                weight = self.fusion_weight
                 logits = (1 - weight) * ts_logits + weight * text_logits
                 loss = criterion(logits, labels)
                 losses.append(loss.item())

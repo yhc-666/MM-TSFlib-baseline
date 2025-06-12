@@ -28,7 +28,7 @@ class P2XDataset(Dataset):
     def __getitem__(self, idx):
         item = self.data[idx]
         ts = torch.tensor(item['reg_ts'][:, :self.num_features], dtype=torch.float32)
-        text = ' '.join(item['text_data'])
+        text = ' '.join(item['text_data'][-5:])
         if self.task == 'pheno':
             label = torch.tensor(item['label'][1:], dtype=torch.float32)
         else:
